@@ -96,7 +96,9 @@ public enum FlashPreflight {
         case "a":
             checks.append(PreflightCheck("Active slot", .pass, "Slot A is active."))
         default:
-            break
+            if input.usbMode == .flashMode {
+                checks.append(PreflightCheck("Active slot", .warning, "Not checked yet. Click \"Read Phone & Back Up TA\": if slot B is active, switch to slot A before flashing."))
+            }
         }
 
         if !input.options.backUpTrimArea {

@@ -194,6 +194,8 @@ final class FirmwareTests: XCTestCase {
         input.currentSlot = "a"
         XCTAssertTrue(FlashPreflight.canStart(FlashPreflight.evaluate(input)))
         input.currentSlot = nil
+        XCTAssertEqual(FlashPreflight.evaluate(input).first { $0.title == "Active slot" }?.status, .warning)
+        input.usbMode = .notConnected
         XCTAssertNil(FlashPreflight.evaluate(input).first { $0.title == "Active slot" })
     }
 }

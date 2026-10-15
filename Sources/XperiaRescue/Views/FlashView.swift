@@ -26,9 +26,13 @@ struct FlashView: View {
                 }
             }
 
-            if model.activeSlot == "b" {
-                Card(title: "Switch to slot A first", systemImage: "arrow.left.arrow.right") {
-                    Callout(style: .warning, text: "The phone's **active slot is B**. newflasher writes the firmware to the active slot, but Sony's firmware only fills **slot A's** vendor and product partitions, so a phone flashed on slot B restarts at the SONY logo.")
+            if model.activeSlot == "b" || (model.activeSlot == nil && model.usbMode == .flashMode) {
+                Card(title: model.activeSlot == "b" ? "Switch to slot A first" : "Check the active slot", systemImage: "arrow.left.arrow.right") {
+                    if model.activeSlot == "b" {
+                        Callout(style: .warning, text: "The phone's **active slot is B**. newflasher writes the firmware to the active slot, but Sony's firmware only fills **slot A's** vendor and product partitions, so a phone flashed on slot B restarts at the SONY logo.")
+                    } else {
+                        Callout(style: .info, text: "The active slot hasn't been read yet. Click **Read Phone & Back Up TA** to check it. Firmware flashed while **slot B** is active restarts at the SONY logo, so switch to slot A first if it says B.")
+                    }
                     Text("Switching only changes the slot flag. Nothing else is written. Afterwards unplug the phone, re-enter flash mode and flash again.")
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

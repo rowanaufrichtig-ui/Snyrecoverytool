@@ -111,6 +111,7 @@ final class AppModel: ObservableObject {
     let backupsDirectory: URL
 
     private var runningCommand: RunningCommand?
+    private var stopRequested = false
     private var usbTimer: Timer?
     private let lastFirmwareKey = "lastFirmwareFolder"
 
@@ -334,33 +335,17 @@ final class AppModel: ObservableObject {
         let title = "Making slot \(slot.uppercased()) active"
         activeJob = JobInfo(title: title, isFlash: false, startedAt: Date())
         lastOutcome = nil
-        log.appendLine("")
-        log.appendLine("$ cd \(Self.shellQuote(folder.path)) && \(Self.shellQuote(executable.path)) set_active:\(slot)")
-        let command = RunningCommand(executable: executable, arguments: ["set_active:\(slot)"], workingDirectory: folder, usePseudoTerminal: true)
-        do {
-            try command.start()
-        } catch {
+        guard let result = await runRawNewflasherCommand(executable: executable, argument: "set_active:\(slot)", echo: true) else {
             activeJob = nil
-            lastOutcome = .failure(title: "\(title) could not start", detail: error.localizedDescription, hints: [])
+            lastOutcome = .failure(title: "\(title) could not start", detail: "newflasher could not be started.", hints: [])
             return
         }
-        runningCommand = command
-        var analyzer = NewflasherOutputAnalyzer()
-        var output = ""
-        var status: Int32 = -1
-        for await event in command.events {
-            switch event {
-            case .output(let text):
-                log.append(text)
-                output += text
-                _ = analyzer.feed(text)
-            case .exit(let code):
-                status = code
-            }
-        }
-        _ = analyzer.finish()
-        runningCommand = nil
         activeJob = nil
+        var analyzer = NewflasherOutputAnalyzer()
+        _ = analyzer.feed(result.output)
+        _ = analyzer.finish()
+        let status = result.status
+        let output = result.output
 
         if status == 0 && output.contains("Writing command: set_active:") && analyzer.problems.isEmpty {
             flashModeInfo["Current slot"] = slot
@@ -418,15 +403,97 @@ final class AppModel: ObservableObject {
             lastOutcome = .failure(title: "Could not create the backup folder", detail: error.localizedDescription, hints: [])
             return
         }
+        stopRequested = false
         Task {
-            await runNewflasher(
+            // newflasher's Dump-trim-area mode exits right after the backup without asking the
+            // phone anything, so the model, slot and security state are read separately.
+            guard let dump = await runNewflasher(
                 executable: newflasher, arguments: ["Dump-trim-area"], workingDirectory: folder,
-                options: options, title: "Reading phone & backing up TA", isFlash: false, estimatedSteps: 0
-            )
+                options: options, title: "Backing up the trim area (TA)", isFlash: false, estimatedSteps: 0
+            ) else { return }
+            var values: [String: String] = [:]
+            if !stopRequested {
+                values = await readFlashModeVariables(executable: newflasher)
+            }
+            finishProbe(dumpStatus: dump.status, dumpHints: dump.hints, values: values, folder: folder)
         }
     }
 
-    private func runNewflasher(executable: URL, arguments: [String], workingDirectory: URL, options: NewflasherOptions, title: String, isFlash: Bool, estimatedSteps: Int) async {
+    private static let flashModeQueries: [(command: String, key: String)] = [
+        ("getvar:product", "Product"),
+        ("getvar:slot-count", "Slot count"),
+        ("getvar:current-slot", "Current slot"),
+        ("getvar:Rooting-status", "Rooting status"),
+        ("getvar:Default-security", "Default security"),
+        ("getvar:S1-root", "S1 root"),
+    ]
+
+    private var commandsDirectory: URL {
+        supportDirectory.appendingPathComponent("Commands", isDirectory: true)
+    }
+
+    /// Asks the flash-mode loader for a few variables, one `newflasher getvar:<name>` run each.
+    /// Nothing is written to the phone.
+    private func readFlashModeVariables(executable: URL) async -> [String: String] {
+        try? FileManager.default.createDirectory(at: commandsDirectory, withIntermediateDirectories: true)
+        activeJob = JobInfo(title: "Reading phone details", isFlash: false, startedAt: Date())
+        defer { activeJob = nil }
+        log.appendLine("Reading phone details in flash mode…")
+        var values: [String: String] = [:]
+        for query in Self.flashModeQueries {
+            guard !stopRequested,
+                  let result = await runRawNewflasherCommand(executable: executable, argument: query.command, echo: false) else { break }
+            switch NewflasherCommandReply.parse(result.output) {
+            case .okay(let value) where !value.isEmpty:
+                values[query.key] = value
+            case .okay, .failed:
+                continue
+            case .none:
+                // No reply at all (phone left flash mode?): show newflasher's output and stop.
+                log.append(result.output)
+                return values
+            }
+        }
+        apply(values.map { NewflasherEvent.deviceInfo(key: $0.key, value: $0.value) })
+        if !values.isEmpty {
+            let summary = Self.flashModeQueries.compactMap { query in values[query.key].map { "\(query.key): \($0)" } }
+            log.appendLine("Phone details: " + summary.joined(separator: " · "))
+        }
+        return values
+    }
+
+    /// Runs `newflasher <argument>` (a single raw loader command). Doesn't touch activeJob.
+    private func runRawNewflasherCommand(executable: URL, argument: String, echo: Bool) async -> (status: Int32, output: String)? {
+        try? FileManager.default.createDirectory(at: commandsDirectory, withIntermediateDirectories: true)
+        if echo {
+            log.appendLine("")
+            log.appendLine("$ cd \(Self.shellQuote(commandsDirectory.path)) && \(Self.shellQuote(executable.path)) \(argument)")
+        }
+        let command = RunningCommand(executable: executable, arguments: [argument], workingDirectory: commandsDirectory, usePseudoTerminal: true)
+        do {
+            try command.start()
+        } catch {
+            log.appendLine("✗ \(error.localizedDescription)")
+            return nil
+        }
+        runningCommand = command
+        var output = ""
+        var status: Int32 = -1
+        for await event in command.events {
+            switch event {
+            case .output(let text):
+                output += text
+                if echo { log.append(text) }
+            case .exit(let code):
+                status = code
+            }
+        }
+        runningCommand = nil
+        return (status, output)
+    }
+
+    @discardableResult
+    private func runNewflasher(executable: URL, arguments: [String], workingDirectory: URL, options: NewflasherOptions, title: String, isFlash: Bool, estimatedSteps: Int) async -> (status: Int32, hints: [String])? {
         activeJob = JobInfo(title: title, isFlash: isFlash, startedAt: Date())
         lastOutcome = nil
         pendingPrompt = nil
@@ -444,7 +511,7 @@ final class AppModel: ObservableObject {
             flashProgress = nil
             lastOutcome = .failure(title: "\(title) could not start", detail: error.localizedDescription, hints: [])
             log.appendLine("✗ \(error.localizedDescription)")
-            return
+            return nil
         }
         runningCommand = command
         // Keep the Mac awake: sleeping mid-flash would cut the USB transfer.
@@ -480,9 +547,8 @@ final class AppModel: ObservableObject {
         let hints = Self.uniqueHints(analyzer.problems)
         if isFlash {
             finishFlash(status: status, analyzer: analyzer, hints: hints, workingDirectory: workingDirectory, rebootMode: options.rebootMode)
-        } else {
-            finishProbe(status: status, analyzer: analyzer, hints: hints, folder: workingDirectory)
         }
+        return (status, hints)
     }
 
     private func apply(_ events: [NewflasherEvent]) {
@@ -511,26 +577,32 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func finishProbe(status: Int32, analyzer: NewflasherOutputAnalyzer, hints: [String], folder: URL) {
+    private func finishProbe(dumpStatus: Int32, dumpHints: [String], values: [String: String], folder: URL) {
         let taFiles = ((try? FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent("tadump").path)) ?? [])
             .filter { $0.hasSuffix(".ta") }
-        if !taFiles.isEmpty { lastTABackup = folder }
-        if status == 0, let model = analyzer.deviceModel {
-            var detail = "Phone model \(model)"
-            if let battery = analyzer.batteryLevel { detail += ", battery \(battery) %" }
-            if let slot = analyzer.currentSlot { detail += ", active slot \(slot.uppercased())" }
-            if analyzer.isBootloaderUnlocked == true { detail += ", bootloader unlocked" }
-            if analyzer.isDevelopmentUnit { detail += ". This is a pre-production (development) unit" }
-            detail += taFiles.isEmpty ? ". No TA backup was written." : ". TA backup saved (\(taFiles.joined(separator: ", ")))."
-            lastOutcome = .success(title: "Phone read successfully", detail: detail)
+        if taFiles.isEmpty {
+            try? FileManager.default.removeItem(at: folder)
         } else {
-            if taFiles.isEmpty { try? FileManager.default.removeItem(at: folder) }
+            lastTABackup = folder
+        }
+        guard let product = values["Product"] else {
             lastOutcome = .failure(
                 title: "Could not read the phone",
-                detail: "newflasher exited with code \(status).",
-                hints: hints.isEmpty ? ["Make sure the phone is in flash mode, then try again."] : hints
+                detail: dumpStatus == 0 ? "The TA backup ran, but the phone did not answer the information requests." : "newflasher exited with code \(dumpStatus).",
+                hints: dumpHints.isEmpty ? ["Make sure the phone is in flash mode (black screen, status shows Flash mode), then try again."] : dumpHints
             )
+            return
         }
+        var parts = ["Model \(FirmwareInspector.extractModel(from: product) ?? product)"]
+        if let slot = activeSlot { parts.append("active slot \(slot.uppercased())") }
+        if bootloaderUnlocked == true { parts.append("bootloader unlocked") }
+        if isDevelopmentUnit { parts.append("pre-production (development) unit") }
+        var detail = parts.joined(separator: ", ") + "."
+        detail += taFiles.isEmpty ? " No TA backup was written." : " TA backup saved."
+        if activeSlot == "b" {
+            detail += " Slot B is active: click \"Switch to Slot A\" on the Flash page before flashing."
+        }
+        lastOutcome = .success(title: "Phone read successfully", detail: detail)
     }
 
     private func finishFlash(status: Int32, analyzer: NewflasherOutputAnalyzer, hints: [String], workingDirectory: URL, rebootMode: NewflasherRebootMode) {
@@ -583,6 +655,7 @@ final class AppModel: ObservableObject {
     }
 
     func stopActiveJob() {
+        stopRequested = true
         guard let command = runningCommand else { return }
         log.appendLine("■ Stopping \(activeJob?.title ?? "command") …")
         command.terminate()

@@ -316,3 +316,60 @@ public struct NewflasherOutputAnalyzer {
         return nil
     }
 }
+
+/// The phone's answer to a single command sent with `newflasher <command>`
+/// (for example `newflasher getvar:current-slot`). newflasher prints the reply
+/// as a hex dump ("got first reply[0x1]:" followed by rows), with the OKAY
+/// status already stripped.
+public enum NewflasherCommandReply: Equatable, Sendable {
+    case okay(String)
+    case failed(String)
+    /// No reply found (phone not in flash mode, newflasher failed early...).
+    case none
+
+    public static func parse(_ output: String) -> NewflasherCommandReply {
+        let lines = output.components(separatedBy: CharacterSet(charactersIn: "\r\n"))
+        if let failLine = lines.first(where: { $0.hasPrefix("got fail reply:") }) {
+            return .failed(failLine.dropFirst("got fail reply:".count).trimmingCharacters(in: .whitespaces))
+        }
+        guard let header = lines.firstIndex(where: { $0.hasPrefix("got first reply[") }) else { return .none }
+
+        var bytes: [UInt8] = []
+        var sawRow = false
+        for line in lines[(header + 1)...] {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                if sawRow { break } else { continue }
+            }
+            guard let rowBytes = hexRowBytes(line) else { break }
+            sawRow = true
+            bytes += rowBytes
+        }
+        var text = String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespacesAndNewlines))
+        if text.hasPrefix("FAIL") {
+            return .failed(String(text.dropFirst(4)))
+        }
+        if text.hasPrefix("OKAY") {
+            text = String(text.dropFirst(4))
+        }
+        return .okay(text)
+    }
+
+    /// Parses one dump row: "  00000000  4F 4B 41 59 62 ...  OKAYb".
+    static func hexRowBytes(_ line: String) -> [UInt8]? {
+        let trimmed = line.drop { $0 == " " }
+        guard trimmed.count > 10 else { return nil }
+        let offset = trimmed.prefix(8)
+        guard offset.allSatisfy(\.isHexDigit), trimmed.dropFirst(8).hasPrefix("  ") else { return nil }
+        var rest = trimmed.dropFirst(10)
+        var bytes: [UInt8] = []
+        // Up to 16 "XX " groups; padding ("   ") or the ASCII column ends the row.
+        while bytes.count < 16, rest.count >= 3 {
+            let pair = rest.prefix(2)
+            guard pair.allSatisfy(\.isHexDigit), rest.dropFirst(2).first == " ",
+                  let byte = UInt8(String(pair), radix: 16) else { break }
+            bytes.append(byte)
+            rest = rest.dropFirst(3)
+        }
+        return bytes.isEmpty ? nil : bytes
+    }
+}

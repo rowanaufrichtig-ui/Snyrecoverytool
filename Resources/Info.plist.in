@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Xperia Rescue</string>
+	<key>CFBundleExecutable</key>
+	<string>XperiaRescue</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>@BUNDLE_ID@</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Xperia Rescue</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@BUILD@</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+	<key>NSSupportsSuddenTermination</key>
+	<false/>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Xperia Rescue reads the Sony firmware you downloaded so it can be flashed to your phone.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Xperia Rescue reads the Sony firmware you downloaded so it can be flashed to your phone.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Xperia Rescue reads the Sony firmware you downloaded so it can be flashed to your phone.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Xperia Rescue reads the Sony firmware you downloaded so it can be flashed to your phone.</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Open source. Not affiliated with Sony. newflasher © Munjeni (MIT).</string>
+</dict>
+</plist>

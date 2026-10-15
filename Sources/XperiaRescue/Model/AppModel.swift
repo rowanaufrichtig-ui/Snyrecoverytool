@@ -284,7 +284,7 @@ final class AppModel: ObservableObject {
         UserDefaults.standard.removeObject(forKey: lastFirmwareKey)
     }
 
-    static func freeSpace(at url: URL) -> Int64? {
+    nonisolated static func freeSpace(at url: URL) -> Int64? {
         guard let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityKey]),
               let capacity = values.volumeAvailableCapacity else { return nil }
         return Int64(capacity)
@@ -314,13 +314,18 @@ final class AppModel: ObservableObject {
 
     func startFlash() {
         guard canStartFlash, let firmware, let newflasher = toolPaths[.newflasher] else { return }
-        var flashOptions = options
-        flashOptions.keepUserData = willKeepUserData
+        let flashOptions = NewflasherOptions(
+            keepUserData: willKeepUserData,
+            rebootMode: options.rebootMode,
+            backUpTrimArea: options.backUpTrimArea,
+            allowLowBattery: options.allowLowBattery
+        )
         let steps = firmware.estimatedFlashSteps(keepUserData: flashOptions.keepUserData)
+        let name = firmware.displayName.isEmpty ? firmware.folder.lastPathComponent : firmware.displayName
         Task {
             await runNewflasher(
                 executable: newflasher, arguments: [], workingDirectory: firmware.folder,
-                options: flashOptions, title: "Flashing \(firmware.displayName.isEmpty ? firmware.folder.lastPathComponent : firmware.displayName)",
+                options: flashOptions, title: "Flashing \(name)",
                 isFlash: true, estimatedSteps: steps
             )
         }
@@ -598,9 +603,10 @@ final class AppModel: ObservableObject {
 
     func adbReboot(_ target: String?) {
         guard let serial = primaryADBSerial else { return }
+        let arguments = ["-s", serial, "reboot"] + (target.map { [$0] } ?? [])
+        let title = target.map { "Rebooting phone to \($0)" } ?? "Rebooting phone"
         Task {
-            let arguments = ["-s", serial, "reboot"] + (target.map { [$0] } ?? [])
-            if let result = await runTool(.adb, arguments, title: "Rebooting phone\(target.map { " to \($0)" } ?? "")"), !result.succeeded {
+            if let result = await runTool(.adb, arguments, title: title), !result.succeeded {
                 lastOutcome = .failure(title: "adb reboot failed", detail: result.output, hints: [])
             }
         }
@@ -679,18 +685,18 @@ final class AppModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    static func timestamp() -> String {
+    nonisolated static func timestamp() -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
         return formatter.string(from: Date())
     }
 
-    static func shellQuote(_ text: String) -> String {
+    nonisolated static func shellQuote(_ text: String) -> String {
         "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    static func shellQuoteIfNeeded(_ text: String) -> String {
+    nonisolated static func shellQuoteIfNeeded(_ text: String) -> String {
         text.rangeOfCharacter(from: CharacterSet(charactersIn: " '\"$&;|<>()*?")) == nil ? text : shellQuote(text)
     }
 

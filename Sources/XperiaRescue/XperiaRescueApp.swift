@@ -24,7 +24,7 @@ struct XperiaRescueApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let model = AppModel()
+    private(set) lazy var model = AppModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Needed when the binary is started outside an .app bundle (swift run).

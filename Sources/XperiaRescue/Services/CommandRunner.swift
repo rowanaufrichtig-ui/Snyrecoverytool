@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc // lets the runner be exercised on Linux too
+#endif
 import Foundation
 import XperiaRescueCore
 
@@ -142,6 +146,9 @@ final class RunningCommand: @unchecked Sendable {
     }
 
     private func startReading(fileDescriptor fd: Int32, closeWhenDone: Bool) {
+        // Non-blocking, so a spurious wake-up can't park the queue inside read()
+        // (that would also block the cancel scheduled in terminationHandler).
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
         source.setEventHandler { [weak self] in
             guard let self else { return }

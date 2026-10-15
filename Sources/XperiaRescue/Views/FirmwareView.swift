@@ -63,17 +63,29 @@ struct FirmwareView: View {
 
     private func summary(_ firmware: FirmwarePackage) -> some View {
         Card(title: "Firmware", systemImage: "shippingbox") {
-            KeyValueGrid(rows: [
-                ("Model", firmware.model.map { model in
-                    XperiaCatalog.variant(forModel: model).map { "\(model) · \($0.market)" } ?? model
-                } ?? "Unknown"),
-                ("Build", firmware.version ?? "Unknown"),
-                ("Region / CDA", [firmware.market, firmware.cda].compactMap { $0 }.joined(separator: " · ").nonEmpty ?? "Unknown"),
-                ("Images", "\(firmware.sinFiles.count) system + \(firmware.bootSinCount) boot (\(firmware.totalBytes.formattedBytes))"),
-                ("Keep user data", firmware.supportsKeepingUserData ? "Supported (update.xml)" : "Not supported: flashing erases the phone"),
-                ("Your phone", compatibilityText(firmware)),
-            ])
+            KeyValueGrid(rows: summaryRows(firmware))
         }
+    }
+
+    private func summaryRows(_ firmware: FirmwarePackage) -> [(String, String)] {
+        var modelText = "Unknown"
+        if let firmwareModel = firmware.model {
+            modelText = firmwareModel
+            if let variant = XperiaCatalog.variant(forModel: firmwareModel) {
+                modelText += " · " + variant.market
+            }
+        }
+        let region = [firmware.market, firmware.cda].compactMap { $0 }.joined(separator: " · ")
+        let images = "\(firmware.sinFiles.count) system + \(firmware.bootSinCount) boot (\(firmware.totalBytes.formattedBytes))"
+        let keepData = firmware.supportsKeepingUserData ? "Supported (update.xml)" : "Not supported: flashing erases the phone"
+        var rows: [(String, String)] = []
+        rows.append(("Model", modelText))
+        rows.append(("Build", firmware.version ?? "Unknown"))
+        rows.append(("Region / CDA", region.isEmpty ? "Unknown" : region))
+        rows.append(("Images", images))
+        rows.append(("Keep user data", keepData))
+        rows.append(("Your phone", compatibilityText(firmware)))
+        return rows
     }
 
     private func compatibilityText(_ firmware: FirmwarePackage) -> String {
@@ -129,8 +141,4 @@ struct FirmwareView: View {
             }
         }
     }
-}
-
-private extension String {
-    var nonEmpty: String? { isEmpty ? nil : self }
 }

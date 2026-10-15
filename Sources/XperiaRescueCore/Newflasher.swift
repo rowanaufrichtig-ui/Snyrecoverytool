@@ -66,6 +66,11 @@ public struct NewflasherPromptAnswer: Equatable, Sendable {
     public let prompt: NewflasherPrompt
     /// nil means the app cannot answer and must ask the user.
     public let answer: String?
+
+    public init(prompt: NewflasherPrompt, answer: String?) {
+        self.prompt = prompt
+        self.answer = answer
+    }
 }
 
 /// Watches newflasher's output and answers its interactive questions from `NewflasherOptions`.

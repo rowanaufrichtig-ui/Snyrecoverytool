@@ -98,6 +98,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var firmware: FirmwarePackage?
     @Published var options = NewflasherOptions()
     @Published var acknowledgedModelRisk = false
+    @Published var allowFlashingSlotB = false
     @Published private(set) var flashProgress: FlashProgress?
     @Published var pendingPrompt: NewflasherPrompt?
 
@@ -305,8 +306,77 @@ final class AppModel: ObservableObject {
             usbMode: usbMode,
             deviceModel: deviceModel,
             options: options,
-            acknowledgedModelRisk: acknowledgedModelRisk
+            acknowledgedModelRisk: acknowledgedModelRisk,
+            currentSlot: activeSlot,
+            allowFlashingSlotB: allowFlashingSlotB
         ))
+    }
+
+    /// Active slot ("a"/"b") as last reported in flash mode, or by fastboot.
+    var activeSlot: String? {
+        if let slot = flashModeInfo["Current slot"]?.lowercased(), slot == "a" || slot == "b" { return slot }
+        if let slot = fastbootVariables?.currentSlot?.lowercased(), slot == "a" || slot == "b" { return slot }
+        return nil
+    }
+
+    /// Sends `set_active:<slot>` to the flash-mode loader (`newflasher set_active:a`).
+    /// Unlike fastboot this works with a locked bootloader. Nothing is written except
+    /// the slot flags; the phone stays in flash mode and should be reconnected.
+    func setActiveSlotInFlashMode(_ slot: String) {
+        guard !isBusy, usbMode == .flashMode, slot == "a" || slot == "b",
+              let newflasher = toolPaths[.newflasher] else { return }
+        let folder = supportDirectory.appendingPathComponent("Commands", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        Task { await runSlotCommand(executable: newflasher, slot: slot, folder: folder) }
+    }
+
+    private func runSlotCommand(executable: URL, slot: String, folder: URL) async {
+        let title = "Making slot \(slot.uppercased()) active"
+        activeJob = JobInfo(title: title, isFlash: false, startedAt: Date())
+        lastOutcome = nil
+        log.appendLine("")
+        log.appendLine("$ cd \(Self.shellQuote(folder.path)) && \(Self.shellQuote(executable.path)) set_active:\(slot)")
+        let command = RunningCommand(executable: executable, arguments: ["set_active:\(slot)"], workingDirectory: folder, usePseudoTerminal: true)
+        do {
+            try command.start()
+        } catch {
+            activeJob = nil
+            lastOutcome = .failure(title: "\(title) could not start", detail: error.localizedDescription, hints: [])
+            return
+        }
+        runningCommand = command
+        var analyzer = NewflasherOutputAnalyzer()
+        var output = ""
+        var status: Int32 = -1
+        for await event in command.events {
+            switch event {
+            case .output(let text):
+                log.append(text)
+                output += text
+                _ = analyzer.feed(text)
+            case .exit(let code):
+                status = code
+            }
+        }
+        _ = analyzer.finish()
+        runningCommand = nil
+        activeJob = nil
+
+        if status == 0 && output.contains("Writing command: set_active:") && analyzer.problems.isEmpty {
+            flashModeInfo["Current slot"] = slot
+            log.appendLine("✓ Slot \(slot.uppercased()) is now active.")
+            lastOutcome = .success(
+                title: "Slot \(slot.uppercased()) is now active",
+                detail: "Unplug the phone and wait about 10 seconds (force it off with Power + Volume Up if the screen lights up), then hold Volume Down and plug it back in to re-enter flash mode. Then flash again: the firmware will be written to slot \(slot.uppercased())."
+            )
+        } else {
+            let hints = Self.uniqueHints(analyzer.problems)
+            lastOutcome = .failure(
+                title: "Could not switch to slot \(slot.uppercased())",
+                detail: "newflasher exited with code \(status).",
+                hints: hints.isEmpty ? ["If the phone has an unlocked bootloader, you can also switch slots in Fastboot Tools."] : hints
+            )
+        }
     }
 
     var needsModelAcknowledgement: Bool {

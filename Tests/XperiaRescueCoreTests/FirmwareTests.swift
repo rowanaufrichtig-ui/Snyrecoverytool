@@ -180,5 +180,20 @@ final class FirmwareTests: XCTestCase {
         input.deviceModel = "XQ-DE54"
         input.newflasherAvailable = false
         XCTAssertFalse(FlashPreflight.canStart(FlashPreflight.evaluate(input)))
+        input.newflasherAvailable = true
+
+        // Slot B is blocked unless explicitly allowed; slot A passes.
+        input.currentSlot = "b"
+        let slotB = FlashPreflight.evaluate(input)
+        XCTAssertFalse(FlashPreflight.canStart(slotB))
+        XCTAssertEqual(slotB.first { $0.title == "Active slot" }?.status, .fail)
+        input.allowFlashingSlotB = true
+        XCTAssertTrue(FlashPreflight.canStart(FlashPreflight.evaluate(input)))
+        XCTAssertEqual(FlashPreflight.evaluate(input).first { $0.title == "Active slot" }?.status, .warning)
+        input.allowFlashingSlotB = false
+        input.currentSlot = "a"
+        XCTAssertTrue(FlashPreflight.canStart(FlashPreflight.evaluate(input)))
+        input.currentSlot = nil
+        XCTAssertNil(FlashPreflight.evaluate(input).first { $0.title == "Active slot" })
     }
 }

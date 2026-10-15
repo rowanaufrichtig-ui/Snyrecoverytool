@@ -28,14 +28,20 @@ public struct PreflightInput: Sendable {
     public var options: NewflasherOptions
     /// The user ticked "I understand" for a model warning.
     public var acknowledgedModelRisk: Bool
+    /// Active slot reported by the phone ("a"/"b"), if it has been read.
+    public var currentSlot: String?
+    /// The user chose to flash even though slot B is active.
+    public var allowFlashingSlotB: Bool
 
-    public init(newflasherAvailable: Bool, firmware: FirmwarePackage?, usbMode: USBConnectionMode, deviceModel: String?, options: NewflasherOptions, acknowledgedModelRisk: Bool) {
+    public init(newflasherAvailable: Bool, firmware: FirmwarePackage?, usbMode: USBConnectionMode, deviceModel: String?, options: NewflasherOptions, acknowledgedModelRisk: Bool, currentSlot: String? = nil, allowFlashingSlotB: Bool = false) {
         self.newflasherAvailable = newflasherAvailable
         self.firmware = firmware
         self.usbMode = usbMode
         self.deviceModel = deviceModel
         self.options = options
         self.acknowledgedModelRisk = acknowledgedModelRisk
+        self.currentSlot = currentSlot
+        self.allowFlashingSlotB = allowFlashingSlotB
     }
 }
 
@@ -77,6 +83,20 @@ public enum FlashPreflight {
                 : PreflightCheck("User data", .warning, "This firmware has no update.xml NOERASE list, so newflasher will erase user data anyway."))
         } else {
             checks.append(PreflightCheck("User data", .warning, "Will be erased (factory reset). This is the most reliable bootloop fix."))
+        }
+
+        switch input.currentSlot?.lowercased() {
+        case "b":
+            // newflasher writes slot-specific images to the active slot, but Sony's super
+            // image only fills slot A's dynamic partitions (vendor_b, product_b... stay
+            // empty), so a phone flashed on slot B restarts at the SONY logo.
+            checks.append(input.allowFlashingSlotB
+                ? PreflightCheck("Active slot", .warning, "Slot B is active and you chose to flash it anyway. Sony firmware only fills slot A's vendor and product partitions, so slot B usually bootloops at the SONY logo.")
+                : PreflightCheck("Active slot", .fail, "Slot B is active. Sony firmware only fills slot A's vendor and product partitions, so a phone flashed on slot B restarts at the SONY logo. Click \"Switch to Slot A\", reconnect in flash mode, then flash."))
+        case "a":
+            checks.append(PreflightCheck("Active slot", .pass, "Slot A is active."))
+        default:
+            break
         }
 
         if !input.options.backUpTrimArea {

@@ -92,7 +92,13 @@ macOS 13 Ventura or newer is required. No USB driver is needed on a Mac.
      into the phone. Keep holding until the app shows **Flash mode**. The screen
      stays black.
 4. **Read Phone & Back Up TA** (recommended). This confirms the model number
-   matches the firmware and stores a trim-area backup in the app's support folder.
+   matches the firmware, shows the **active slot**, and stores a trim-area backup
+   in the app's support folder.
+   - If the active slot is **B**, click **Switch to Slot A**, unplug, re-enter
+     flash mode and continue. newflasher writes the firmware to the active slot,
+     but Sony's `super` image only fills slot A's `vendor`/`product` partitions,
+     so a phone flashed on slot B restarts at the SONY logo. (This is the same
+     as `newflasher set_active:a` and works with a locked bootloader.)
 5. **Flash Stock ROM.** Try **Keep user data** first. If the phone still
    bootloops afterwards, flash again with it turned off (a full factory reset;
    this fixes most bootloops). Flashing takes about 5–15 minutes; the first boot
@@ -111,6 +117,7 @@ flash mode and flash again; a complete flash repairs a half-written phone.
 | "Not enough disk space" | newflasher needs 10 GB free on the disk that holds the firmware folder. |
 | "bootdelivery doesn't match" | The firmware is for a different variant. Download firmware for your exact model number. |
 | Battery below 15 % | Charge first. The app refuses to flash below 15 % unless you allow it under Advanced. |
+| Restarts at the SONY logo after ~8 s, even after a wiped flash | It was flashed while slot **B** was active. Click **Switch to Slot A** in flash mode, reconnect, and flash again. |
 | `Command not allowed` in fastboot | The bootloader is locked. Use **Flash Stock ROM** instead; it works while locked. |
 
 ## Development

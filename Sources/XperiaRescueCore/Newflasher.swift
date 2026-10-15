@@ -307,6 +307,9 @@ public struct NewflasherOutputAnalyzer {
         if lower.contains("hard brick") && lower.contains("battery") {
             return make("The battery is low. Charge the phone (at least 15 %, ideally 50 %) before flashing.")
         }
+        if lower.hasPrefix("got fail reply") {
+            return make("The phone refused the command. Make sure it is in flash mode (not fastboot) and try again.")
+        }
         if lower.hasPrefix("error") || lower.hasPrefix("- error") || lower.hasPrefix(" - error") || lower.contains(" fail with error") || lower.contains("failed with error") {
             return make("newflasher reported an error. Check the log above; if flashing stopped midway, put the phone back in flash mode and start again: nothing is lost by reflashing.")
         }

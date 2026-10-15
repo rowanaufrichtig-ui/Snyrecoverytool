@@ -175,6 +175,13 @@ final class NewflasherTests: XCTestCase {
         XCTAssertTrue(analyzer.problems.isEmpty, "\(analyzer.problems)")
     }
 
+    func testRawCommandFailureIsExplained() {
+        var analyzer = NewflasherOutputAnalyzer()
+        _ = analyzer.feed("Writing command: set_active:a\ngot fail reply: FAILCommand not allowed\n")
+        XCTAssertEqual(analyzer.problems.count, 1)
+        XCTAssertTrue(analyzer.problems[0].hint.contains("refused"))
+    }
+
     func testRetailUnitIsNotDevelopment() {
         var analyzer = NewflasherOutputAnalyzer()
         _ = analyzer.feed("Rooting status: ROOTABLE\nDefault security: ON\nS1 root: S1_Root_d831\nBattery level: 57\n")

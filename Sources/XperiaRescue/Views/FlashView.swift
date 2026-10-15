@@ -26,6 +26,22 @@ struct FlashView: View {
                 }
             }
 
+            if model.activeSlot == "b" {
+                Card(title: "Switch to slot A first", systemImage: "arrow.left.arrow.right") {
+                    Callout(style: .warning, text: "The phone's **active slot is B**. newflasher writes the firmware to the active slot, but Sony's firmware only fills **slot A's** vendor and product partitions, so a phone flashed on slot B restarts at the SONY logo.")
+                    Text("Switching only changes the slot flag. Nothing else is written. Afterwards unplug the phone, re-enter flash mode and flash again.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button {
+                        model.setActiveSlotInFlashMode("a")
+                    } label: {
+                        Label("Switch to Slot A", systemImage: "arrow.left.arrow.right")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isBusy || model.usbMode != .flashMode || model.toolPaths[.newflasher] == nil)
+                }
+            }
+
             Card(title: "Options", systemImage: "slider.horizontal.3") {
                 Toggle(isOn: $model.options.keepUserData) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -57,6 +73,8 @@ struct FlashView: View {
 
                 DisclosureGroup("Advanced") {
                     Toggle("Allow flashing when the battery is below 15 %", isOn: $model.options.allowLowBattery)
+                        .disabled(model.isBusy)
+                    Toggle("Allow flashing while slot B is active", isOn: $model.allowFlashingSlotB)
                         .disabled(model.isBusy)
                     Text("Not recommended: if the battery dies mid-flash the phone may need another flash to recover.")
                         .font(.caption)

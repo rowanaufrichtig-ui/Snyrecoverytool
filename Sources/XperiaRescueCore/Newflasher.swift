@@ -161,6 +161,7 @@ public struct NewflasherOutputAnalyzer {
         "Loader version", "Phone ID", "Device ID", "Platform ID", "Rooting status",
         "Ufs info", "Emmc info", "Security state", "Slot count", "Current slot",
         "Battery level", "CDFId", "SPC", "Keystore counter", "Default security",
+        "S1 root", "Sake root", "Root key hash",
     ]
 
     private var partialLine = ""
@@ -179,8 +180,34 @@ public struct NewflasherOutputAnalyzer {
         }
     }
 
+    /// nil when the loader can't report it (newflasher then prints "0 unsupported command").
     public var batteryLevel: Int? {
-        deviceInfo["Battery level"].flatMap { Int($0.prefix { $0.isNumber }) }
+        guard let raw = deviceInfo["Battery level"], !raw.contains("unsupported"),
+              let level = Int(raw.prefix { $0.isNumber }), level > 0 else { return nil }
+        return level
+    }
+
+    /// The slot newflasher writes slot-specific images to (and leaves active): "a" or "b".
+    public var currentSlot: String? {
+        guard let slot = deviceInfo["Current slot"]?.lowercased(), slot == "a" || slot == "b" else { return nil }
+        return slot
+    }
+
+    /// Pre-production phones report "Default security: OFF" and carry Sony's test signing root.
+    public var isDevelopmentUnit: Bool {
+        deviceInfo["Default security"]?.uppercased() == "OFF" || (deviceInfo["S1 root"]?.contains("_Test") ?? false)
+    }
+
+    /// Sony's loader reports an unlocked bootloader as "Rooting status: ROOTED".
+    public var isBootloaderUnlocked: Bool? {
+        guard let status = deviceInfo["Rooting status"]?.uppercased(), !status.isEmpty else { return nil }
+        return status == "ROOTED"
+    }
+
+    /// Images actually written: processed .sin files that newflasher did not then skip.
+    public var flashedImages: [String] {
+        let skipped = Set(skippedFiles)
+        return processedFiles.filter { !skipped.contains($0) }
     }
 
     public mutating func feed(_ text: String) -> [NewflasherEvent] {
@@ -218,9 +245,13 @@ public struct NewflasherOutputAnalyzer {
             }
         }
         if line.hasPrefix("Processing ") {
-            let file = String(line.dropFirst("Processing ".count))
-            processedFiles.append(file)
-            events.append(.processing(file: file))
+            // Only image files count; "Processing .sin files..." and .ta writes are not images.
+            let path = String(line.dropFirst("Processing ".count))
+            let file = path.split(separator: "/").last.map(String.init) ?? path
+            if file.lowercased().hasSuffix(".sin") {
+                processedFiles.append(file)
+                events.append(.processing(file: file))
+            }
         } else if let file = Self.skippedFile(in: line) {
             skippedFiles.append(file)
             events.append(.skipped(file: file))

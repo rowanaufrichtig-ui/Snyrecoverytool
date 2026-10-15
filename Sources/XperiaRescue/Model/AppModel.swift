@@ -89,6 +89,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var adbDevices: [ADBDevice] = []
     @Published private(set) var adbProperties: [String: String] = [:]
     @Published private(set) var lastTABackup: URL?
+    /// Phone reported "Default security: OFF" / a test signing root in flash mode.
+    @Published private(set) var isDevelopmentUnit = false
+    /// From flash mode's "Rooting status" (ROOTED = unlocked) or fastboot's "unlocked".
+    @Published private(set) var bootloaderUnlocked: Bool?
 
     // Firmware & flashing
     @Published private(set) var firmware: FirmwarePackage?
@@ -237,6 +241,8 @@ final class AppModel: ObservableObject {
         deviceModel = nil
         deviceModelSource = nil
         flashModeInfo = [:]
+        isDevelopmentUnit = false
+        bootloaderUnlocked = nil
         acknowledgedModelRisk = false
     }
 
@@ -320,7 +326,7 @@ final class AppModel: ObservableObject {
             backUpTrimArea: options.backUpTrimArea,
             allowLowBattery: options.allowLowBattery
         )
-        let steps = firmware.estimatedFlashSteps(keepUserData: flashOptions.keepUserData)
+        let steps = firmware.estimatedFlashSteps
         let name = firmware.displayName.isEmpty ? firmware.folder.lastPathComponent : firmware.displayName
         Task {
             await runNewflasher(
@@ -415,6 +421,14 @@ final class AppModel: ObservableObject {
             case .deviceInfo(let key, let value):
                 flashModeInfo[key] = value
                 if key == "Product" { setDeviceModel(value, source: "flash mode") }
+                if key == "Rooting status" {
+                    bootloaderUnlocked = value.uppercased() == "ROOTED"
+                }
+                if (key == "Default security" && value.uppercased() == "OFF") || (key == "S1 root" && value.contains("_Test")),
+                   !isDevelopmentUnit {
+                    isDevelopmentUnit = true
+                    log.appendLine("ℹ︎ This phone reports \"Default security: OFF\" and/or Sony's test signing root: it is a pre-production (development) unit. Sony's consumer repair tools don't support these, and retail firmware may not fully support early prototype hardware.")
+                }
             case .processing(let file):
                 if var progress = flashProgress {
                     progress.processed += 1
@@ -434,7 +448,9 @@ final class AppModel: ObservableObject {
         if status == 0, let model = analyzer.deviceModel {
             var detail = "Phone model \(model)"
             if let battery = analyzer.batteryLevel { detail += ", battery \(battery) %" }
-            if let slot = analyzer.deviceInfo["Current slot"] { detail += ", active slot \(slot)" }
+            if let slot = analyzer.currentSlot { detail += ", active slot \(slot.uppercased())" }
+            if analyzer.isBootloaderUnlocked == true { detail += ", bootloader unlocked" }
+            if analyzer.isDevelopmentUnit { detail += ". This is a pre-production (development) unit" }
             detail += taFiles.isEmpty ? ". No TA backup was written." : ". TA backup saved (\(taFiles.joined(separator: ", ")))."
             lastOutcome = .success(title: "Phone read successfully", detail: detail)
         } else {
@@ -466,16 +482,20 @@ final class AppModel: ObservableObject {
             case .powerOff: next = "The phone has been powered off. Unplug it and hold Power to start it; the first boot can take 5-10 minutes."
             default: next = "The phone is rebooting into the mode you chose."
             }
+            let slotText = analyzer.currentSlot.map { " to slot \($0.uppercased())" } ?? ""
+            let dataText = analyzer.skippedFiles.contains(where: { $0.lowercased().hasPrefix("userdata") })
+                ? " User data was kept; if it still bootloops, flash again with \"Keep user data\" turned off."
+                : " User data was erased."
             lastOutcome = .success(
                 title: "Stock firmware installed",
-                detail: "\(analyzer.processedFiles.count) images flashed. \(next) If it still bootloops, flash again with \"Keep user data\" turned off."
+                detail: "\(analyzer.flashedImages.count) images written\(slotText). \(next)\(dataText)"
             )
             log.appendLine("✓ Flashing finished.")
-        } else if status == 0 && hints.isEmpty && !analyzer.processedFiles.isEmpty {
-            lastOutcome = .success(title: "newflasher finished", detail: "\(analyzer.processedFiles.count) images processed. Check the log to confirm everything was written.")
+        } else if status == 0 && hints.isEmpty && !analyzer.flashedImages.isEmpty {
+            lastOutcome = .success(title: "newflasher finished", detail: "\(analyzer.flashedImages.count) images written. Check the log to confirm everything was written.")
         } else {
             var allHints = hints
-            if analyzer.processedFiles.isEmpty {
+            if analyzer.flashedImages.isEmpty {
                 allHints.append("Nothing was written to the phone, so it is no worse off than before.")
             } else {
                 allHints.append("Flashing stopped partway. Put the phone back into flash mode and flash again; a complete flash fixes a half-written phone.")
@@ -541,6 +561,7 @@ final class AppModel: ObservableObject {
             fastbootVariables = variables
             if let product = variables.product { setDeviceModel(product, source: "fastboot") }
             if let unlocked = variables.isUnlocked {
+                bootloaderUnlocked = unlocked
                 log.appendLine(unlocked
                     ? "Bootloader is UNLOCKED: fastboot flashing is allowed."
                     : "Bootloader is LOCKED: fastboot cannot flash. Use Flash Stock ROM (flash mode), which works while locked.")

@@ -107,6 +107,82 @@ final class NewflasherTests: XCTestCase {
         XCTAssertEqual(analyzer.finish(), [.finished])
     }
 
+    /// Excerpt of a real session on a pre-production Xperia 5 V (newflasher v61, keep userdata).
+    func testRealDevelopmentUnitSession() {
+        let log = """
+        Trim area dump done, continuing with flashing.
+        Product: XQ-DE54
+        Version: 0.4
+        Secure: no
+        Rooting status: ROOTED
+        Emmc info: FAILEmmc-info not supported
+        Default security: OFF
+        S1 root: S1_Root_d831,S1_Root_Test_b316
+        Slot count: 2
+        Current slot: b
+        Battery level: 0 unsupported command
+        CDFId: (null)
+
+        Repartitioning...
+        Processing partition-image-LUN0_124887040_X-FLASH-ALL-25B1.sin
+         - End of partition-image-LUN0_124887040_X-FLASH-ALL-25B1.sin
+
+        Processing partition-image-LUN0_249847808_X-FLASH-ALL-25B1.sin
+        Skipping partition-image-LUN0_249847808_X-FLASH-ALL-25B1.sin
+
+        Processing .sin files...
+        Processing misc_X-FLASH-ALL-25B1.sin
+         - End of misc_X-FLASH-ALL-25B1.sin
+
+        Processing userdata_X-FLASH-ALL-25B1.sin
+        <NOERASE>userdata_X-FLASH-ALL-25B1.sin</NOERASE>
+         - Skipping userdata_X-FLASH-ALL-25B1.sin
+        Skipping persist_X-FLASH-ALL-25B1.sin
+
+        Processing .ta files...
+        Processing auto-boot.ta
+        Processing boot delivery...
+        Processing ./boot/PDX237_XBootConfig_MiscTA.ta
+        Processing bootloader_111_X-FLASH-ALL-7430.sin
+         - End of bootloader_111_X-FLASH-ALL-7430.sin
+
+        Set slot 'b' active.
+        Sent command: continue.
+
+        Done.
+
+        """
+        var analyzer = NewflasherOutputAnalyzer()
+        _ = analyzer.feed(log)
+        XCTAssertEqual(analyzer.deviceModel, "XQ-DE54")
+        XCTAssertNil(analyzer.batteryLevel, "0 unsupported command must not read as 0 %")
+        XCTAssertEqual(analyzer.currentSlot, "b")
+        XCTAssertTrue(analyzer.isDevelopmentUnit)
+        XCTAssertEqual(analyzer.isBootloaderUnlocked, true)
+        XCTAssertEqual(analyzer.processedFiles, [
+            "partition-image-LUN0_124887040_X-FLASH-ALL-25B1.sin",
+            "partition-image-LUN0_249847808_X-FLASH-ALL-25B1.sin",
+            "misc_X-FLASH-ALL-25B1.sin",
+            "userdata_X-FLASH-ALL-25B1.sin",
+            "bootloader_111_X-FLASH-ALL-7430.sin",
+        ])
+        XCTAssertEqual(analyzer.flashedImages, [
+            "partition-image-LUN0_124887040_X-FLASH-ALL-25B1.sin",
+            "misc_X-FLASH-ALL-25B1.sin",
+            "bootloader_111_X-FLASH-ALL-7430.sin",
+        ])
+        XCTAssertTrue(analyzer.didFinish)
+        XCTAssertTrue(analyzer.problems.isEmpty, "\(analyzer.problems)")
+    }
+
+    func testRetailUnitIsNotDevelopment() {
+        var analyzer = NewflasherOutputAnalyzer()
+        _ = analyzer.feed("Rooting status: ROOTABLE\nDefault security: ON\nS1 root: S1_Root_d831\nBattery level: 57\n")
+        XCTAssertFalse(analyzer.isDevelopmentUnit)
+        XCTAssertEqual(analyzer.isBootloaderUnlocked, false)
+        XCTAssertEqual(analyzer.batteryLevel, 57)
+    }
+
     func testNoTrimAreaWarningIsNotAProblem() {
         var analyzer = NewflasherOutputAnalyzer()
         _ = analyzer.feed("\nNo trim area dump taken, continuing with flashing anyway. If this phone ever hard bricks there will be no trim area backup to restore from, and that is on you.\n")

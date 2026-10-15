@@ -53,6 +53,8 @@ public struct FirmwarePackage: Sendable {
     public let sinFiles: [FirmwareFile]
     public let taFiles: [String]
     public let bootSinCount: Int
+    /// Partition-table images in partition/ (flashed first, when the layout changes).
+    public let partitionSinCount: Int
     public let bootImagesPerConfiguration: Int
     public let hasBootDelivery: Bool
     public let hasUpdateXML: Bool
@@ -69,14 +71,11 @@ public struct FirmwarePackage: Sendable {
     /// Whether newflasher can preserve user data with this package.
     public var supportsKeepingUserData: Bool { hasUpdateXML && !noEraseFiles.isEmpty }
 
-    /// Roughly how many "Processing <file>" lines newflasher will print, for progress display.
-    public func estimatedFlashSteps(keepUserData: Bool) -> Int {
-        let topLevel = sinFiles.filter { file in
-            if file.alwaysSkipped != nil { return false }
-            if keepUserData && noEraseFiles.contains(file.name) { return false }
-            return true
-        }.count
-        return topLevel + bootImagesPerConfiguration
+    /// Roughly how many "Processing <image>.sin" lines newflasher will print, for progress
+    /// display. Files kept for user data are still announced (then skipped), persist and
+    /// top-level partition images are not.
+    public var estimatedFlashSteps: Int {
+        sinFiles.filter { $0.alwaysSkipped == nil }.count + partitionSinCount + bootImagesPerConfiguration
     }
 
     public enum Compatibility: Equatable, Sendable {
@@ -145,6 +144,8 @@ public enum FirmwareInspector {
             totalBytes += fileSize(bootFolder.appendingPathComponent(name), fileManager: fileManager)
         }
         let bootDeliveryXML = readText(bootFolder.appendingPathComponent("boot_delivery.xml"))
+        let partitionEntries = (try? fileManager.contentsOfDirectory(atPath: folder.appendingPathComponent("partition").path)) ?? []
+        let partitionSinCount = partitionEntries.filter { $0.lowercased().hasSuffix(".sin") }.count
         let bootImagesPerConfiguration = bootDeliveryXML.map(maxBootImagesPerConfiguration) ?? 0
 
         // Model / version / CDA: look at fwinfo.xml (written by XperiFirm), the
@@ -205,6 +206,7 @@ public enum FirmwareInspector {
             sinFiles: sinFiles,
             taFiles: taFiles,
             bootSinCount: bootSinCount,
+            partitionSinCount: partitionSinCount,
             bootImagesPerConfiguration: bootImagesPerConfiguration,
             hasBootDelivery: bootDeliveryXML != nil,
             hasUpdateXML: updateXML != nil,
@@ -303,7 +305,7 @@ public enum FirmwareInspector {
     private static func emptyPackage(folder: URL, issues: [FirmwareIssue]) -> FirmwarePackage {
         FirmwarePackage(
             folder: folder, model: nil, version: nil, cda: nil, market: nil, sinFiles: [], taFiles: [],
-            bootSinCount: 0, bootImagesPerConfiguration: 0, hasBootDelivery: false, hasUpdateXML: false,
+            bootSinCount: 0, partitionSinCount: 0, bootImagesPerConfiguration: 0, hasBootDelivery: false, hasUpdateXML: false,
             noEraseFiles: [], totalBytes: 0, issues: issues
         )
     }

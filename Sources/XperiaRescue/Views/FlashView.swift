@@ -96,6 +96,9 @@ struct FlashView: View {
 
             if !model.flashModeInfo.isEmpty {
                 Card(title: "Phone (from flash mode)", systemImage: "iphone") {
+                    if model.isDevelopmentUnit {
+                        Callout(style: .info, text: "This phone reports **Default security: OFF** and/or Sony's test signing root: it is a **pre-production (development) unit**. Sony's consumer tools don't support these, and retail firmware may not fully support early prototype hardware.")
+                    }
                     KeyValueGrid(rows: deviceRows)
                 }
             }
@@ -140,10 +143,20 @@ struct FlashView: View {
     }
 
     private var deviceRows: [(String, String)] {
-        let keys = ["Product", "Battery level", "Current slot", "Slot count", "Rooting status", "Secure", "Bootloader version", "Baseband version", "CDFId", "Serialno"]
-        return keys.compactMap { key in
+        let keys = ["Product", "Battery level", "Current slot", "Slot count", "Rooting status", "Default security", "Secure", "Bootloader version", "Baseband version", "CDFId", "Serialno"]
+        return keys.compactMap { key -> (String, String)? in
             guard let value = model.flashModeInfo[key], !value.isEmpty else { return nil }
-            return (key, key == "Battery level" ? "\(value) %" : value)
+            switch key {
+            case "Battery level":
+                let level = Int(value.prefix { $0.isNumber }) ?? 0
+                return (key, level > 0 && !value.contains("unsupported") ? "\(level) %" : "Not reported by this phone: charge it before flashing")
+            case "Current slot":
+                return (key, "\(value.uppercased()) (slot-specific images are written here)")
+            case "Rooting status" where value.uppercased() == "ROOTED":
+                return (key, "ROOTED (bootloader unlocked)")
+            default:
+                return (key, value)
+            }
         }
     }
 

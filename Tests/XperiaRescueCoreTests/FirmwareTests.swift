@@ -87,9 +87,9 @@ final class FirmwareTests: XCTestCase {
         XCTAssertEqual(package.sinFiles.first { $0.name.hasPrefix("Partition") }?.alwaysSkipped, .partitionTable)
         XCTAssertEqual(package.sinFiles.first { $0.partition == "userdata" }?.erasesUserData, true)
 
-        // 6 sins - persist - partition = 4 (3 when userdata is kept) + 3 boot images.
-        XCTAssertEqual(package.estimatedFlashSteps(keepUserData: false), 7)
-        XCTAssertEqual(package.estimatedFlashSteps(keepUserData: true), 6)
+        // 6 sins - persist - top-level partition image = 4, plus 3 boot images
+        // (NOERASE files are still announced by newflasher when user data is kept).
+        XCTAssertEqual(package.estimatedFlashSteps, 7)
 
         XCTAssertEqual(package.compatibility(withDeviceModel: "XQ-DE54"), .match)
         XCTAssertEqual(package.compatibility(withDeviceModel: "XQ_DE54"), .match)
